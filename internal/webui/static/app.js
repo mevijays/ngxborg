@@ -208,7 +208,7 @@ document.querySelectorAll('.nav-item[data-view]').forEach((btn) => {
 // ---- Dashboard ------------------------------------------------------------------
 
 views.dashboard = async (container) => {
-  const repos = await api('GET', '/api/repos');
+  const repos = (await api('GET', '/api/repos')) || [];
   const totalMB = repos.reduce((sum, r) => sum + (r.SizeMB || 0), 0);
   const initialized = repos.filter((r) => r.Initialized).length;
   const byTenant = {};

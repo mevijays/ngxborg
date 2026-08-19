@@ -24,6 +24,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeJSONList is writeJSON for slice-shaped responses specifically: a nil
+// Go slice — the normal, idiomatic zero value for "found nothing", and
+// what every ListXxx function in this codebase correctly returns for that
+// case — marshals to JSON `null`, not `[]`. That is harmless in Go itself
+// (ranging over a nil slice is a no-op, len(nil) is 0) but not in
+// JavaScript: `null.reduce` or `null.map` throws, so every list endpoint
+// the frontend consumes needs to guarantee an empty array, never null,
+// confirmed live when the dashboard's repo count crashed on exactly this
+// for a fresh account with zero repositories. Fixed once, here, rather
+// than requiring every internal ListXxx function to abandon Go's own
+// idiomatic nil-slice convention, and rather than requiring every call
+// site in app.js to defensively guard against a null the backend should
+// never have sent in the first place — this is the one seam where a Go
+// value becomes a value something else has to trust.
+func writeJSONList[T any](w http.ResponseWriter, status int, items []T) {
+	if items == nil {
+		items = []T{}
+	}
+	writeJSON(w, status, items)
+}
+
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
@@ -99,7 +120,7 @@ func (s *server) handleReposList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, repos)
+	writeJSONList(w, http.StatusOK, repos)
 }
 
 func (s *server) handleReposCreate(w http.ResponseWriter, r *http.Request) {
@@ -192,7 +213,7 @@ func (s *server) handleKeysList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, keys)
+	writeJSONList(w, http.StatusOK, keys)
 }
 
 func (s *server) handleKeysAdd(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +276,7 @@ func (s *server) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		disabled, _ := posix.IsDisabled(name)
 		out = append(out, userInfo{Username: name, Admin: posix.IsAdmin(name), Keys: len(keys), Disabled: disabled})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSONList(w, http.StatusOK, out)
 }
 
 func (s *server) handleUsersCreate(w http.ResponseWriter, r *http.Request) {
@@ -352,5 +373,5 @@ func (s *server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, c.Diagnose())
+	writeJSONList(w, http.StatusOK, c.Diagnose())
 }
