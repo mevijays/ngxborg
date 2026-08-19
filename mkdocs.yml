@@ -1,0 +1,37 @@
+site_name: ngxborg
+site_description: A multi-tenant, PAM-authenticated Borg backup server for Debian/Ubuntu
+site_url: https://mevijays.github.io/ngxborg/
+repo_url: https://github.com/mevijays/ngxborg
+repo_name: mevijays/ngxborg
+edit_uri: edit/main/docs/
+
+theme:
+  name: readthedocs
+  highlightjs: true
+  hljs_languages:
+    - bash
+    - go
+    - yaml
+    - ini
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Getting started: getting-started.md
+  - Architecture: architecture.md
+  - CLI reference: cli-reference.md
+  - Web UI guide: web-ui.md
+  - Security model: security.md
+  - Pairing with ngxsetup: ngxsetup-integration.md
+  - Troubleshooting: troubleshooting.md
+  - Contributing: contributing.md
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - fenced_code
+  - tables
+  - def_list
+
+strict: false

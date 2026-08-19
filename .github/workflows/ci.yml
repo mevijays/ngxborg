@@ -1,0 +1,196 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Unit tests (amd64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # authpam talks to libpam directly via cgo (see internal/authpam's
+      # package doc) — the dev headers are needed to build and test it,
+      # even though the runtime library is already present on any
+      # Debian/Ubuntu box.
+      - name: Install libpam headers
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libpam0g-dev
+
+      - name: Format check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Build
+        run: go build -o /dev/null ./cmd/ngxborg
+
+  build-arm64:
+    name: Build + test (arm64)
+    # A free GitHub-hosted arm64 runner for public repos — used instead of
+    # cross-compiling: authpam's cgo/-lpam link needs the target
+    # architecture's own libpam headers and linker, which a plain
+    # GOARCH=arm64 cross-build on an amd64 host does not have without a
+    # cross-toolchain this project has no other reason to depend on.
+    # Building natively on the real architecture is simpler and closer to
+    # what actually ships.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install libpam headers
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libpam0g-dev
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -count=1 ./...
+      - name: Build
+        run: go build -o /dev/null ./cmd/ngxborg
+
+  integration:
+    name: End-to-end on a real stack
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install libpam headers
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libpam0g-dev
+
+      - name: Build
+        run: go build -o ngxborg ./cmd/ngxborg
+
+      # setup installs its own runtime dependencies (borgbackup,
+      # openssh-server, libpam-modules) — nothing to apt-get by hand here.
+      - name: Set up the host
+        run: sudo ./ngxborg setup --admin-port 22 --borg-port 2222
+
+      - name: doctor is clean right after setup
+        run: sudo ./ngxborg doctor
+
+      - name: Create two tenants and three repositories
+        run: |
+          sudo ./ngxborg user create tenant1
+          sudo ./ngxborg user create tenant2
+          sudo ./ngxborg repo create --tenant tenant1 demoa
+          sudo ./ngxborg repo create --tenant tenant1 demob
+          sudo ./ngxborg repo create --tenant tenant2 other
+          sudo ./ngxborg repo list
+
+      - name: Generate client keys and register them, scoped one-to-one
+        run: |
+          ssh-keygen -t ed25519 -N "" -C ci-tenant1-demoa -f /tmp/key-t1-a
+          ssh-keygen -t ed25519 -N "" -C ci-tenant2-other -f /tmp/key-t2-o
+          sudo ./ngxborg user key add --tenant tenant1 demoa "$(cat /tmp/key-t1-a.pub)"
+          sudo ./ngxborg user key add --tenant tenant2 other "$(cat /tmp/key-t2-o.pub)"
+          sudo ./ngxborg user key list --tenant tenant1
+
+      - name: A key can init, back up to, and list its own repository
+        env:
+          BORG_PASSPHRASE: ci-test-passphrase-not-a-secret
+          BORG_RSH: ssh -i /tmp/key-t1-a -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
+        run: |
+          repo="ssh://tenant1@localhost:2222/var/lib/ngxborg/repos/tenant1/demoa"
+          borg init --encryption=repokey-blake2 "$repo"
+          echo "hello from ci" > /tmp/payload.txt
+          borg create "${repo}::first" /tmp/payload.txt
+          borg list "$repo" | grep -q first
+
+      - name: A key cannot reach a DIFFERENT repository of the SAME tenant
+        env:
+          BORG_PASSPHRASE: ci-test-passphrase-not-a-secret
+          BORG_RSH: ssh -i /tmp/key-t1-a -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
+        run: |
+          other_repo="ssh://tenant1@localhost:2222/var/lib/ngxborg/repos/tenant1/demob"
+          if borg init --encryption=repokey-blake2 "$other_repo" 2>/tmp/cross-repo.log; then
+            echo "SECURITY: demoa's key was able to reach demob"
+            exit 1
+          fi
+          cat /tmp/cross-repo.log
+          grep -qi "restrict" /tmp/cross-repo.log || echo "(no 'restrict' string in the borg error — check manually above)"
+
+      - name: A different tenant's key cannot authenticate as this tenant at all
+        env:
+          BORG_PASSPHRASE: ci-test-passphrase-not-a-secret
+          BORG_RSH: ssh -i /tmp/key-t2-o -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5
+        run: |
+          repo="ssh://tenant1@localhost:2222/var/lib/ngxborg/repos/tenant1/demoa"
+          if borg list "$repo" 2>/tmp/cross-tenant.log; then
+            echo "SECURITY: tenant2's key authenticated as tenant1"
+            exit 1
+          fi
+          cat /tmp/cross-tenant.log
+
+      - name: Disabling a repository blocks its own key, re-enabling restores it
+        env:
+          BORG_PASSPHRASE: ci-test-passphrase-not-a-secret
+          BORG_RSH: ssh -i /tmp/key-t1-a -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
+        run: |
+          repo="ssh://tenant1@localhost:2222/var/lib/ngxborg/repos/tenant1/demoa"
+          sudo ./ngxborg repo disable --tenant tenant1 demoa
+          if borg list "$repo" 2>/tmp/disabled.log; then
+            echo "repository should be unreachable while disabled"
+            exit 1
+          fi
+          cat /tmp/disabled.log
+          sudo ./ngxborg repo enable --tenant tenant1 demoa
+          borg list "$repo" | grep -q first
+
+      - name: Disabling a tenant account locks out its keys too
+        env:
+          BORG_PASSPHRASE: ci-test-passphrase-not-a-secret
+          BORG_RSH: ssh -i /tmp/key-t1-a -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5
+        run: |
+          repo="ssh://tenant1@localhost:2222/var/lib/ngxborg/repos/tenant1/demoa"
+          sudo ./ngxborg user disable tenant1
+          if borg list "$repo" 2>/tmp/user-disabled.log; then
+            echo "a disabled account's key should not authenticate"
+            exit 1
+          fi
+          cat /tmp/user-disabled.log
+          sudo ./ngxborg user enable tenant1
+          borg list "$repo" | grep -q first
+
+      - name: Web UI starts as a service and serves TLS
+        run: |
+          sudo ./ngxborg install service --addr :8443
+          ok=""
+          for i in $(seq 1 10); do
+            if wget -q -O /tmp/index.html --no-check-certificate https://localhost:8443/; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "web UI never responded"
+            sudo journalctl -u ngxborg-web.service --no-pager | tail -50
+            exit 1
+          fi
+          grep -qi "ngxborg" /tmp/index.html
+          sudo ./ngxborg uninstall service
+
+      - name: Final diagnostics
+        run: sudo ./ngxborg doctor

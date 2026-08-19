@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          # authpam links against libpam via cgo (see internal/authpam's
+          # package doc) — cross-compiling that for arm64 from an amd64
+          # host needs a cross-toolchain and arm64 PAM headers this
+          # project has no other reason to depend on. Building natively
+          # on a real arm64 runner (free for public repos) avoids that
+          # entirely and is closer to what actually ships.
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install libpam headers
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libpam0g-dev
+
+      - name: Test
+        run: go test -count=1 ./...
+
+      - name: Build
+        run: |
+          mkdir -p dist
+          version="${GITHUB_REF_NAME}"
+          go build -trimpath \
+            -ldflags "-s -w -X ngxborg/internal/build.Version=${version}" \
+            -o "dist/ngxborg-linux-${{ matrix.arch }}" ./cmd/ngxborg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ngxborg-linux-${{ matrix.arch }}
+          path: dist/ngxborg-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd dist && sha256sum ngxborg-* > SHA256SUMS && cat SHA256SUMS
+
+      # v1.0.0-beta, v1.2.0-rc1, etc. publish as a GitHub pre-release —
+      # anything with a hyphen after the version core is, by semver
+      # convention, a pre-release build. A plain vX.Y.Z is a full release.
+      - name: Determine prerelease flag
+        id: prerelease
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ steps.prerelease.outputs.value }}
+          generate_release_notes: true
+          files: |
+            dist/ngxborg-linux-amd64
+            dist/ngxborg-linux-arm64
+            dist/SHA256SUMS
