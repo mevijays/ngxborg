@@ -34,6 +34,25 @@ function humanMB(n) {
   if (n < 1024) return `${n} MB`;
   return `${(n / 1024).toFixed(1)} GB`;
 }
+// fetchTenantNames/fetchRepoNames back every tenant/repo picker in the UI —
+// dropdowns sourced from what actually exists, rather than free-text
+// fields an operator has to spell correctly by hand. A tenant session
+// only ever has itself to pick from; admin gets the real list.
+async function fetchTenantNames() {
+  if (!me.admin) return [me.username];
+  const users = (await api('GET', '/api/users')) || [];
+  return users.map((u) => u.username);
+}
+async function fetchRepoNames(tenant) {
+  const qs = tenant ? '?tenant=' + encodeURIComponent(tenant) : '';
+  const repos = (await api('GET', '/api/repos' + qs)) || [];
+  return repos.map((r) => r.Name);
+}
+function optionsHTML(values, emptyLabel) {
+  if (values.length === 0) return `<option value="">${escapeHTML(emptyLabel || 'none yet')}</option>`;
+  return values.map((v) => `<option value="${escapeHTML(v)}">${escapeHTML(v)}</option>`).join('');
+}
+
 function badgeClass(status) {
   if (status === 'ok') return 'badge-ok';
   if (status === 'warn') return 'badge-warn';
@@ -260,14 +279,19 @@ views.dashboard = async (container) => {
 // ---- Repositories ---------------------------------------------------------------
 
 views.repos = async (container) => {
+  const tenants = await fetchTenantNames();
+
   container.innerHTML = `
     <h2 class="page-title">${icon('fa-database', 'text-indigo-500')}Repositories</h2>
     <div class="card">
       <div class="flex items-center justify-between mb-3">
         <h3 class="card-title mb-0">${icon('fa-list')}All repositories</h3>
         ${me.admin ? `<div class="flex items-center gap-2">
-          <input type="text" id="repo-filter-tenant" class="field-input" placeholder="filter by tenant" style="width:auto">
-          <button id="repo-filter-go" class="btn btn-sm">Filter</button>
+          <label class="field-label mb-0">Tenant</label>
+          <select id="repo-filter-tenant" class="field-input" style="width:auto">
+            <option value="">All tenants</option>
+            ${optionsHTML(tenants)}
+          </select>
         </div>` : ''}
       </div>
       <table class="data-table">
@@ -278,7 +302,8 @@ views.repos = async (container) => {
     <div class="card">
       <h3 class="card-title">${icon('fa-plus-circle')}Create a repository</h3>
       <form id="repo-create-form" class="flex flex-wrap items-end gap-3">
-        ${me.admin ? `<div><label class="field-label">Tenant</label><input type="text" id="repo-new-tenant" class="field-input" required></div>` : ''}
+        ${me.admin ? `<div><label class="field-label">Tenant</label>
+          <select id="repo-new-tenant" class="field-input" required>${optionsHTML(tenants, 'no tenants yet')}</select></div>` : ''}
         <div><label class="field-label">Repository name</label><input type="text" id="repo-new-name" class="field-input" required></div>
         <button type="submit" class="btn btn-primary">${icon('fa-plus')}<span>Create</span></button>
       </form>
@@ -286,7 +311,7 @@ views.repos = async (container) => {
     </div>`;
 
   async function loadRepos() {
-    const tenantFilter = me.admin ? document.getElementById('repo-filter-tenant').value.trim() : '';
+    const tenantFilter = me.admin ? document.getElementById('repo-filter-tenant').value : '';
     const qs = tenantFilter ? '?tenant=' + encodeURIComponent(tenantFilter) : '';
     const repos = (await api('GET', '/api/repos' + qs)) || [];
     const tbody = document.getElementById('repo-rows');
@@ -343,14 +368,14 @@ views.repos = async (container) => {
   }
 
   if (me.admin) {
-    document.getElementById('repo-filter-go').addEventListener('click', loadRepos);
+    document.getElementById('repo-filter-tenant').addEventListener('change', loadRepos);
   }
   document.getElementById('repo-create-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const hint = document.getElementById('repo-create-hint');
     hint.textContent = '';
     const body = { name: document.getElementById('repo-new-name').value.trim() };
-    if (me.admin) body.tenant = document.getElementById('repo-new-tenant').value.trim();
+    if (me.admin) body.tenant = document.getElementById('repo-new-tenant').value;
     try {
       const repo = await api('POST', '/api/repos', body);
       document.getElementById('repo-new-name').value = '';
@@ -368,14 +393,16 @@ views.repos = async (container) => {
 // ---- SSH keys ---------------------------------------------------------------
 
 views.keys = async (container) => {
+  const tenants = await fetchTenantNames();
+
   container.innerHTML = `
     <h2 class="page-title">${icon('fa-key', 'text-indigo-500')}SSH Keys</h2>
     <div class="card">
       <div class="flex items-center justify-between mb-3">
         <h3 class="card-title mb-0">${icon('fa-list')}Registered keys</h3>
         ${me.admin ? `<div class="flex items-center gap-2">
-          <input type="text" id="keys-filter-tenant" class="field-input" placeholder="tenant" style="width:auto">
-          <button id="keys-filter-go" class="btn btn-sm">Filter</button>
+          <label class="field-label mb-0">Tenant</label>
+          <select id="keys-filter-tenant" class="field-input" style="width:auto">${optionsHTML(tenants, 'no tenants yet')}</select>
         </div>` : ''}
       </div>
       <table class="data-table">
@@ -388,8 +415,9 @@ views.keys = async (container) => {
       <p class="text-xs text-slate-500 mb-3">A registered key can only run <code class="chip">borg serve</code> against the one repository it names — never a shell, never another tenant's data.</p>
       <form id="key-add-form">
         <div class="flex flex-wrap items-end gap-3 mb-3">
-          ${me.admin ? `<div><label class="field-label">Tenant</label><input type="text" id="key-tenant" class="field-input" required></div>` : ''}
-          <div><label class="field-label">Repository</label><input type="text" id="key-repo" class="field-input" required></div>
+          ${me.admin ? `<div><label class="field-label">Tenant</label>
+            <select id="key-tenant" class="field-input" required>${optionsHTML(tenants, 'no tenants yet')}</select></div>` : ''}
+          <div><label class="field-label">Repository</label><select id="key-repo" class="field-input" required></select></div>
           <label class="field-checkbox-row"><input type="checkbox" id="key-append-only"> append-only</label>
         </div>
         <label class="field-label">Public key</label>
@@ -398,9 +426,24 @@ views.keys = async (container) => {
       </form>
     </div>`;
 
+  // The repository picker in "Register a key" always tracks whichever
+  // tenant is currently selected there (or the signed-in tenant, for a
+  // non-admin session) — a repo belongs to exactly one tenant, so the
+  // dropdown must be refreshed every time that selection changes rather
+  // than showing a fixed, possibly-wrong list.
+  async function refreshKeyRepoOptions() {
+    const tenant = me.admin ? document.getElementById('key-tenant').value : me.username;
+    const repoSelect = document.getElementById('key-repo');
+    repoSelect.innerHTML = optionsHTML(await fetchRepoNames(tenant), 'no repositories yet — create one first');
+  }
+
   async function loadKeys() {
-    const tenant = me.admin ? document.getElementById('keys-filter-tenant').value.trim() : '';
-    const qs = tenant ? '?tenant=' + encodeURIComponent(tenant) : (me.admin ? '' : '?tenant=' + encodeURIComponent(me.username));
+    const tenant = me.admin ? document.getElementById('keys-filter-tenant').value : me.username;
+    if (!tenant) {
+      document.getElementById('keys-rows').innerHTML = `<tr><td colspan="4" class="text-slate-400 text-center py-4">No tenants yet.</td></tr>`;
+      return;
+    }
+    const qs = '?tenant=' + encodeURIComponent(tenant);
     let keys = [];
     try { keys = (await api('GET', '/api/keys' + qs)) || []; } catch { keys = []; }
     const tbody = document.getElementById('keys-rows');
@@ -408,7 +451,6 @@ views.keys = async (container) => {
       tbody.innerHTML = `<tr><td colspan="4" class="text-slate-400 text-center py-4">No keys registered yet.</td></tr>`;
       return;
     }
-    const scopeTenant = tenant || me.username;
     tbody.innerHTML = keys.map((k) => `
       <tr>
         <td class="font-mono text-xs">${escapeHTML(k.RepoPath)}</td>
@@ -421,7 +463,7 @@ views.keys = async (container) => {
         const res = await confirmModal({ title: 'Remove this key?', body: 'The matching private key will no longer be able to reach this repository.', confirmLabel: 'Remove', danger: true });
         if (!res) return;
         try {
-          await api('DELETE', `/api/keys/${encodeURIComponent(scopeTenant)}/${encodeURIComponent(btn.dataset.material)}`);
+          await api('DELETE', `/api/keys/${encodeURIComponent(tenant)}/${encodeURIComponent(btn.dataset.material)}`);
           toast('Key removed', 'ok');
           loadKeys();
         } catch (err) {
@@ -431,19 +473,21 @@ views.keys = async (container) => {
     });
   }
 
-  if (me.admin) document.getElementById('keys-filter-go').addEventListener('click', loadKeys);
+  if (me.admin) {
+    document.getElementById('keys-filter-tenant').addEventListener('change', loadKeys);
+    document.getElementById('key-tenant').addEventListener('change', refreshKeyRepoOptions);
+  }
   document.getElementById('key-add-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = {
-      repo: document.getElementById('key-repo').value.trim(),
+      repo: document.getElementById('key-repo').value,
       publicKey: document.getElementById('key-pubkey').value.trim(),
       appendOnly: document.getElementById('key-append-only').checked,
     };
-    if (me.admin) body.tenant = document.getElementById('key-tenant').value.trim();
+    if (me.admin) body.tenant = document.getElementById('key-tenant').value;
     try {
       await api('POST', '/api/keys', body);
       document.getElementById('key-pubkey').value = '';
-      document.getElementById('key-repo').value = '';
       toast('Key registered', 'ok');
       loadKeys();
     } catch (err) {
@@ -451,6 +495,7 @@ views.keys = async (container) => {
     }
   });
 
+  await refreshKeyRepoOptions();
   await loadKeys();
 };
 
