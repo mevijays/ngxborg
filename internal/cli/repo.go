@@ -12,7 +12,7 @@ import (
 
 func cmdRepo(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errUsage("ngxborg repo <create|list|delete|purge> ...")
+		return errUsage("ngxborg repo <create|list|delete|purge|disable|enable> ...")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -24,8 +24,12 @@ func cmdRepo(ctx context.Context, args []string) error {
 		return cmdRepoDelete(ctx, rest)
 	case "purge":
 		return cmdRepoPurge(ctx, rest)
+	case "disable":
+		return cmdRepoDisable(ctx, rest)
+	case "enable":
+		return cmdRepoEnable(ctx, rest)
 	default:
-		return errUsage("ngxborg repo <create|list|delete|purge> ...")
+		return errUsage("ngxborg repo <create|list|delete|purge|disable|enable> ...")
 	}
 }
 
@@ -99,6 +103,9 @@ func cmdRepoList(ctx context.Context, args []string) error {
 		if r.Initialized {
 			state = facts.FormatMB(r.SizeMB)
 		}
+		if r.Disabled {
+			state += " [disabled]"
+		}
 		logx.Info("%-14s %-20s %-40s %s", r.Tenant, r.Name, state, r.CreatedAt.Format(time.DateOnly))
 	}
 	return nil
@@ -125,6 +132,54 @@ func cmdRepoDelete(ctx context.Context, args []string) error {
 		return err
 	}
 	logx.Change("moved %s/%s to the trash — recoverable until `ngxborg repo purge`", tenant, fs.Arg(0))
+	return nil
+}
+
+func cmdRepoDisable(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("repo disable", flag.ContinueOnError)
+	tenantFlag := fs.String("tenant", "", "which tenant's repository to disable")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errUsage("ngxborg repo disable [--tenant <name>] <repo>")
+	}
+	id, err := resolveIdentity()
+	if err != nil {
+		return err
+	}
+	tenant, err := scopeTenant(id, *tenantFlag)
+	if err != nil {
+		return err
+	}
+	if err := borgrepo.Disable(tenant, fs.Arg(0)); err != nil {
+		return err
+	}
+	logx.Change("disabled %s/%s — every SSH key restricted to it is locked out until `ngxborg repo enable`", tenant, fs.Arg(0))
+	return nil
+}
+
+func cmdRepoEnable(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("repo enable", flag.ContinueOnError)
+	tenantFlag := fs.String("tenant", "", "which tenant's repository to enable")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errUsage("ngxborg repo enable [--tenant <name>] <repo>")
+	}
+	id, err := resolveIdentity()
+	if err != nil {
+		return err
+	}
+	tenant, err := scopeTenant(id, *tenantFlag)
+	if err != nil {
+		return err
+	}
+	if err := borgrepo.Enable(tenant, fs.Arg(0)); err != nil {
+		return err
+	}
+	logx.Change("enabled %s/%s", tenant, fs.Arg(0))
 	return nil
 }
 

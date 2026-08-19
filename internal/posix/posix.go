@@ -14,7 +14,9 @@ import (
 	"context"
 	"fmt"
 	"os/user"
+	"strconv"
 	"strings"
+	"time"
 
 	"ngxborg/internal/system"
 )
@@ -186,6 +188,59 @@ func SetPassword(ctx context.Context, r system.Runner, username, password string
 		return fmt.Errorf("setting password for %s: %w", username, err)
 	}
 	return nil
+}
+
+// Disable locks a tenant out of everything — the web UI and SSH/borg
+// access alike — without touching their password, keys, or repositories,
+// so re-enabling is instant and lossless. This is deliberately not the
+// same as SetPassword locking a fresh account's password hash (which only
+// blocks password authentication): a disabled tenant's SSH key would still
+// work fine against a locked-password account, since key-based auth never
+// touches the password hash at all. Setting the account's shadow(5)
+// expiry into the past is what actually closes both doors — sshd itself
+// refuses an expired account before running any command (a forced borg
+// serve included), regardless of auth method, and PAM's own account phase
+// (pam_acct_mgmt, which authpam.Authenticate calls) rejects it the same
+// way for the web UI.
+func Disable(ctx context.Context, r system.Runner, username string) error {
+	if !Exists(username) {
+		return fmt.Errorf("no such account %q", username)
+	}
+	// Epoch day 1 (1970-01-02): any date already in the past works, this
+	// one is simply unambiguous and never plausible as a real expiry an
+	// operator meant to set some other way.
+	if err := r.Run(ctx, "usermod", "--expiredate", "1", username); err != nil {
+		return fmt.Errorf("disabling %s: %w", username, err)
+	}
+	return nil
+}
+
+// Enable reverses Disable by clearing the account's expiry date.
+func Enable(ctx context.Context, r system.Runner, username string) error {
+	if !Exists(username) {
+		return fmt.Errorf("no such account %q", username)
+	}
+	if err := r.Run(ctx, "usermod", "--expiredate", "", username); err != nil {
+		return fmt.Errorf("enabling %s: %w", username, err)
+	}
+	return nil
+}
+
+// IsDisabled reports whether Disable has been applied — the account's
+// shadow(5) expiry date is set and in the past.
+func IsDisabled(username string) (bool, error) {
+	out, err := readShadowField(username, 7) // expire is the 8th colon-separated field
+	if err != nil {
+		return false, err
+	}
+	if out == "" {
+		return false, nil
+	}
+	days, err := strconv.Atoi(out)
+	if err != nil {
+		return false, nil // an unparseable field is not this package's concern to flag as disabled
+	}
+	return int64(days) <= time.Now().Unix()/86400, nil
 }
 
 // ListTenants returns every registered ngxborg account, admins included.

@@ -4,95 +4,61 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ngxborg</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/vendor/tailwind.css">
+<link rel="stylesheet" href="/vendor/fontawesome.css">
+<link rel="stylesheet" href="/app.css">
 </head>
-<body>
-<div id="login-view" class="view">
-  <form id="login-form" class="card login-card">
-    <h1>ngxborg</h1>
-    <p class="muted">Sign in with your account's own password.</p>
-    <label>Username <input type="text" id="login-username" autocomplete="username" required></label>
-    <label>Password <input type="password" id="login-password" autocomplete="current-password" required></label>
-    <div id="login-error" class="error"></div>
-    <button type="submit">Sign in</button>
+<body class="bg-slate-50 text-slate-800 antialiased">
+
+<div id="login-view" class="min-h-screen flex items-center justify-center p-4">
+  <form id="login-form" class="login-card">
+    <div class="flex items-center gap-2 mb-1">
+      <i class="fa fa-hdd-o text-indigo-600 text-xl"></i>
+      <span class="font-semibold text-slate-900 text-lg">ngxborg</span>
+    </div>
+    <p class="text-sm text-slate-500 mb-5">Sign in with your account's own password.</p>
+    <label class="field-label" for="login-username">Username</label>
+    <input type="text" id="login-username" class="field-input mb-3" autocomplete="username" required>
+    <label class="field-label" for="login-password">Password</label>
+    <input type="password" id="login-password" class="field-input mb-2" autocomplete="current-password" required>
+    <div id="login-error" class="text-rose-600 text-xs min-h-[1rem] mb-3"></div>
+    <button type="submit" class="btn btn-primary w-full justify-center">
+      <i class="fa fa-sign-in"></i><span>Sign in</span>
+    </button>
   </form>
 </div>
 
-<div id="app-view" class="view" hidden>
-  <header>
-    <div class="brand">ngxborg</div>
-    <div class="who">
-      <span id="whoami"></span>
-      <button id="logout-btn" class="link">sign out</button>
+<div id="app-view" class="flex h-screen overflow-hidden" hidden>
+  <nav class="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col py-4 px-3 overflow-y-auto">
+    <div class="flex items-center gap-2 px-2 pb-4 mb-2 border-b border-slate-100">
+      <i class="fa fa-hdd-o text-indigo-600 text-lg"></i>
+      <span class="font-semibold text-slate-900">ngxborg</span>
+      <span id="app-version-badge" class="text-[10px] text-slate-400 font-mono ml-auto"></span>
     </div>
-  </header>
-
-  <nav id="tabs">
-    <button class="tab active" data-tab="repos">Repositories</button>
-    <button class="tab" data-tab="keys">Keys</button>
-    <button class="tab admin-only" data-tab="users" hidden>Users</button>
-    <button class="tab admin-only" data-tab="doctor" hidden>Doctor</button>
-  </nav>
-
-  <main>
-    <section id="tab-repos" class="tab-panel">
-      <div class="panel-header">
-        <h2>Repositories</h2>
-        <div id="repo-tenant-filter" hidden>
-          <input type="text" id="repo-tenant" placeholder="tenant (admin)">
-          <button id="repo-tenant-go" class="link">filter</button>
-        </div>
+    <button class="nav-item active" data-view="dashboard"><i class="fa fa-tachometer"></i><span>Dashboard</span></button>
+    <button class="nav-item" data-view="repos"><i class="fa fa-database"></i><span>Repositories</span></button>
+    <button class="nav-item" data-view="keys"><i class="fa fa-key"></i><span>SSH Keys</span></button>
+    <button class="nav-item admin-only" data-view="users" hidden><i class="fa fa-users"></i><span>Users</span></button>
+    <button class="nav-item admin-only" data-view="doctor" hidden><i class="fa fa-heartbeat"></i><span>Doctor</span></button>
+    <div class="flex-1"></div>
+    <div class="px-3 py-2 text-xs text-slate-400 border-t border-slate-100 mt-2 pt-3">
+      <div id="whoami-line"><i class="fa fa-user-circle-o mr-1"></i><span id="whoami"></span></div>
+      <button id="change-password-btn" class="text-indigo-500 hover:underline mt-1 block"><i class="fa fa-key mr-1"></i>Change my password</button>
+      <button id="logout-btn" class="text-indigo-500 hover:underline mt-1 block"><i class="fa fa-sign-out mr-1"></i>Sign out</button>
+      <div class="mt-2 pt-2 border-t border-slate-100">
+        <div id="app-maintainer"><i class="fa fa-user mr-1"></i>Maintained by Vijay Vishwakarma</div>
+        <a id="app-repo-link" href="https://github.com/sharmavijay86/ngxborg" target="_blank" rel="noopener noreferrer" class="text-indigo-500 hover:underline break-all block mt-1">
+          <i class="fa fa-code-fork mr-1"></i>github.com/sharmavijay86/ngxborg
+        </a>
       </div>
-      <table id="repo-table">
-        <thead><tr><th>Tenant</th><th>Name</th><th>Status</th><th>Created</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <form id="repo-create-form" class="inline-form">
-        <input type="text" id="repo-new-tenant" placeholder="tenant (admin only)" class="admin-only" hidden>
-        <input type="text" id="repo-new-name" placeholder="new repository name" required>
-        <button type="submit">Create</button>
-      </form>
-      <div id="repo-create-hint" class="hint"></div>
-    </section>
-
-    <section id="tab-keys" class="tab-panel" hidden>
-      <div class="panel-header"><h2>Backup SSH keys</h2></div>
-      <input type="text" id="keys-tenant" placeholder="tenant (admin)" class="admin-only" hidden>
-      <table id="keys-table">
-        <thead><tr><th>Repo</th><th>Mode</th><th>Comment</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <form id="key-add-form" class="inline-form">
-        <input type="text" id="key-repo" placeholder="repository name" required>
-        <label class="checkbox"><input type="checkbox" id="key-append-only"> append-only</label>
-        <textarea id="key-pubkey" placeholder="ssh-ed25519 AAAA... you@host" required></textarea>
-        <button type="submit">Add key</button>
-      </form>
-    </section>
-
-    <section id="tab-users" class="tab-panel" hidden>
-      <div class="panel-header"><h2>Accounts</h2></div>
-      <table id="users-table">
-        <thead><tr><th>Username</th><th>Role</th><th>Keys</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <form id="user-create-form" class="inline-form">
-        <input type="text" id="user-new-name" placeholder="username" required>
-        <label class="checkbox"><input type="checkbox" id="user-new-admin"> admin</label>
-        <button type="submit">Create account</button>
-      </form>
-    </section>
-
-    <section id="tab-doctor" class="tab-panel" hidden>
-      <div class="panel-header"><h2>Diagnostics</h2><button id="doctor-run" class="link">run again</button></div>
-      <table id="doctor-table">
-        <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-  </main>
+    </div>
+  </nav>
+  <main id="content" class="flex-1 overflow-y-auto p-6"></main>
 </div>
 
+<div id="toast-container" class="fixed bottom-4 right-4 flex flex-col gap-2 z-50"></div>
+
+<script src="/vendor/chart.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

@@ -10,6 +10,8 @@
 *.test
 *.out
 /ngxborg
+/ngxborg-linux-*
+/ngxborg-macos-*
 
 # Coverage
 coverage.*

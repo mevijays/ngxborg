@@ -71,6 +71,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/repos", s.withAuth(s.handleReposCreate))
 	mux.HandleFunc("DELETE /api/repos/{tenant}/{name}", s.withAuth(s.handleReposDelete))
 	mux.HandleFunc("POST /api/repos/{tenant}/{name}/purge", s.withAuth(s.handleReposPurge))
+	mux.HandleFunc("POST /api/repos/{tenant}/{name}/disable", s.withAuth(s.handleReposDisable))
+	mux.HandleFunc("POST /api/repos/{tenant}/{name}/enable", s.withAuth(s.handleReposEnable))
 
 	mux.HandleFunc("GET /api/keys", s.withAuth(s.handleKeysList))
 	mux.HandleFunc("POST /api/keys", s.withAuth(s.handleKeysAdd))
@@ -79,6 +81,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/users", s.withAuth(s.withAdmin(s.handleUsersList)))
 	mux.HandleFunc("POST /api/users", s.withAuth(s.withAdmin(s.handleUsersCreate)))
 	mux.HandleFunc("DELETE /api/users/{username}", s.withAuth(s.withAdmin(s.handleUsersDelete)))
+	mux.HandleFunc("POST /api/users/{username}/disable", s.withAuth(s.withAdmin(s.handleUsersDisable)))
+	mux.HandleFunc("POST /api/users/{username}/enable", s.withAuth(s.withAdmin(s.handleUsersEnable)))
 
 	mux.HandleFunc("POST /api/passwd", s.withAuth(s.handlePasswd))
 	mux.HandleFunc("GET /api/doctor", s.withAuth(s.withAdmin(s.handleDoctor)))

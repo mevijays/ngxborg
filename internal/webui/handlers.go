@@ -150,6 +150,34 @@ func (s *server) handleReposPurge(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *server) handleReposDisable(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	tenant, err := scopeTenant(sess, r.PathValue("tenant"))
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if err := borgrepo.Disable(tenant, r.PathValue("name")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *server) handleReposEnable(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	tenant, err := scopeTenant(sess, r.PathValue("tenant"))
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if err := borgrepo.Enable(tenant, r.PathValue("name")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // ---- ssh keys -------------------------------------------------------------
 
 func (s *server) handleKeysList(w http.ResponseWriter, r *http.Request) {
@@ -219,11 +247,13 @@ func (s *server) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Admin    bool   `json:"admin"`
 		Keys     int    `json:"keys"`
+		Disabled bool   `json:"disabled"`
 	}
 	var out []userInfo
 	for _, name := range names {
 		keys, _ := sshaccess.ListKeys(name)
-		out = append(out, userInfo{Username: name, Admin: posix.IsAdmin(name), Keys: len(keys)})
+		disabled, _ := posix.IsDisabled(name)
+		out = append(out, userInfo{Username: name, Admin: posix.IsAdmin(name), Keys: len(keys), Disabled: disabled})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -252,11 +282,40 @@ func (s *server) handleUsersDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleUsersDisable and handleUsersEnable are admin-only (see server.go's
+// routing, not a self-service scopeTenant call like the repo/key
+// endpoints): an account disabling itself through the same session it is
+// about to lock out has no recovery path back through this UI, so that
+// choice is left to a different admin account instead.
+func (s *server) handleUsersDisable(w http.ResponseWriter, r *http.Request) {
+	if err := posix.Disable(r.Context(), system.Runner{}, r.PathValue("username")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *server) handleUsersEnable(w http.ResponseWriter, r *http.Request) {
+	if err := posix.Enable(r.Context(), system.Runner{}, r.PathValue("username")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handlePasswd sets or resets a login password — the same operation
+// `ngxborg user passwd` performs, and the fix for a real gap found in
+// testing: the web UI could create an account but had no way at all to
+// give it a usable password afterward. A blank password in the request
+// means "generate one", mirroring the CLI's --generate flag and
+// ngxsetup's own established pattern for every other generated secret —
+// shown back to the caller exactly once in the response, never logged,
+// never retrievable again after this call returns.
 func (s *server) handlePasswd(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	var req struct{ Username, Password string }
-	if err := readJSON(r, &req); err != nil || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "password is required")
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	target := req.Username
@@ -267,11 +326,22 @@ func (s *server) handlePasswd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, errForbiddenTenant.Error())
 		return
 	}
-	if err := posix.SetPassword(r.Context(), system.Runner{}, target, req.Password); err != nil {
+
+	password := req.Password
+	generated := ""
+	if password == "" {
+		p, err := system.Password(20)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "could not generate a password")
+			return
+		}
+		password, generated = p, p
+	}
+	if err := posix.SetPassword(r.Context(), system.Runner{}, target, password); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, http.StatusOK, map[string]string{"generated_password": generated})
 }
 
 // ---- doctor (admin only) ----------------------------------------------------

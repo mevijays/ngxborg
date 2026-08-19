@@ -75,6 +75,10 @@ USERS
   ngxborg user list
   ngxborg user passwd [--generate] [username]
       Set/reset a login password. A tenant with no argument sets their own.
+  ngxborg user disable <username>
+  ngxborg user enable <username>
+      Locks out the web UI and every SSH key on the account at once,
+      without touching the password, keys, or repositories — reversible.
   ngxborg user key add [--tenant <name>] [--append-only] <repo> <pubkey-or-@file>
   ngxborg user key list [--tenant <name>]
   ngxborg user key remove [--tenant <name>] <key-material>
@@ -87,6 +91,10 @@ REPOSITORIES
       Soft delete — recoverable until purged.
   ngxborg repo purge [--tenant <name>] [--yes] <repo>
       Permanent, irreversible.
+  ngxborg repo disable [--tenant <name>] <repo>
+  ngxborg repo enable [--tenant <name>] <repo>
+      Blocks every SSH key restricted to this repository, without
+      removing the keys or the data — reversible.
 
   ngxborg doctor
   ngxborg version

@@ -62,9 +62,25 @@ type Repo struct {
 	Name        string
 	Path        string
 	Initialized bool
+	Disabled    bool
 	SizeMB      int64
 	CreatedAt   time.Time
 }
+
+// disabledMode is what Disable sets a repository directory's permissions
+// to: nothing, for anyone, owner included. A tenant's own borg serve
+// process (running as that tenant, not root) then fails to even os.stat()
+// the directory — the exact PermissionError CreateRepo's own history
+// already proved is fatal to every borg operation, deliberately reused
+// here as the mechanism rather than inventing a second one. Root-run
+// operations (the CLI, the web UI) are unaffected, since root ignores
+// standard Unix permission checks — which is correct: disabling a
+// repository is about closing the tenant's own access to it, not the
+// operator's.
+const disabledMode = 0o000
+
+// enabledMode is what CreateRepo already used and what Enable restores.
+const enabledMode = 0o700
 
 func repoDir(tenant, name string) string { return filepath.Join(Base, tenant, name) }
 
@@ -249,6 +265,12 @@ func findInTrash(tenant, name string) (string, error) {
 }
 
 func statRepo(tenant, name, dir string) (Repo, error) {
+	// os.Stat succeeds regardless of dir's own permission bits — stat(2)
+	// never checks a target's own mode, only that every parent directory
+	// on the way to it is traversable, which root (the only thing that
+	// ever calls this) always is. That is what makes reading Mode() back
+	// out a reliable way to detect Disable's effect rather than something
+	// this call would itself be blocked by.
 	info, err := os.Stat(dir)
 	if err != nil {
 		return Repo{}, err
@@ -258,9 +280,39 @@ func statRepo(tenant, name, dir string) (Repo, error) {
 		Name:        name,
 		Path:        dir,
 		Initialized: isInitialized(dir),
+		Disabled:    info.Mode().Perm() == disabledMode,
 		SizeMB:      dirSizeMB(dir),
 		CreatedAt:   info.ModTime(),
 	}, nil
+}
+
+// Disable blocks a tenant's own access to a repository — every borg
+// operation their SSH key could otherwise run against it starts failing
+// immediately — without touching the repository's data, its registered
+// keys, or its metadata. See disabledMode's own doc comment for the
+// mechanism and why it only affects the tenant, never the operator.
+func Disable(tenant, name string) error {
+	dir := repoDir(tenant, name)
+	if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("no repository %q for tenant %s: %w", name, tenant, err)
+	}
+	if err := os.Chmod(dir, disabledMode); err != nil {
+		return fmt.Errorf("disabling %s: %w", dir, err)
+	}
+	return nil
+}
+
+// Enable reverses Disable, restoring the same tenant-owned, tenant-only
+// permissions CreateRepo originally set.
+func Enable(tenant, name string) error {
+	dir := repoDir(tenant, name)
+	if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("no repository %q for tenant %s: %w", name, tenant, err)
+	}
+	if err := os.Chmod(dir, enabledMode); err != nil {
+		return fmt.Errorf("enabling %s: %w", dir, err)
+	}
+	return nil
 }
 
 // isInitialized checks for the "config" file `borg init` writes at a
