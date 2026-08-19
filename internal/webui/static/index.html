@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ngxborg</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="login-view" class="view">
+  <form id="login-form" class="card login-card">
+    <h1>ngxborg</h1>
+    <p class="muted">Sign in with your account's own password.</p>
+    <label>Username <input type="text" id="login-username" autocomplete="username" required></label>
+    <label>Password <input type="password" id="login-password" autocomplete="current-password" required></label>
+    <div id="login-error" class="error"></div>
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+
+<div id="app-view" class="view" hidden>
+  <header>
+    <div class="brand">ngxborg</div>
+    <div class="who">
+      <span id="whoami"></span>
+      <button id="logout-btn" class="link">sign out</button>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="repos">Repositories</button>
+    <button class="tab" data-tab="keys">Keys</button>
+    <button class="tab admin-only" data-tab="users" hidden>Users</button>
+    <button class="tab admin-only" data-tab="doctor" hidden>Doctor</button>
+  </nav>
+
+  <main>
+    <section id="tab-repos" class="tab-panel">
+      <div class="panel-header">
+        <h2>Repositories</h2>
+        <div id="repo-tenant-filter" hidden>
+          <input type="text" id="repo-tenant" placeholder="tenant (admin)">
+          <button id="repo-tenant-go" class="link">filter</button>
+        </div>
+      </div>
+      <table id="repo-table">
+        <thead><tr><th>Tenant</th><th>Name</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <form id="repo-create-form" class="inline-form">
+        <input type="text" id="repo-new-tenant" placeholder="tenant (admin only)" class="admin-only" hidden>
+        <input type="text" id="repo-new-name" placeholder="new repository name" required>
+        <button type="submit">Create</button>
+      </form>
+      <div id="repo-create-hint" class="hint"></div>
+    </section>
+
+    <section id="tab-keys" class="tab-panel" hidden>
+      <div class="panel-header"><h2>Backup SSH keys</h2></div>
+      <input type="text" id="keys-tenant" placeholder="tenant (admin)" class="admin-only" hidden>
+      <table id="keys-table">
+        <thead><tr><th>Repo</th><th>Mode</th><th>Comment</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <form id="key-add-form" class="inline-form">
+        <input type="text" id="key-repo" placeholder="repository name" required>
+        <label class="checkbox"><input type="checkbox" id="key-append-only"> append-only</label>
+        <textarea id="key-pubkey" placeholder="ssh-ed25519 AAAA... you@host" required></textarea>
+        <button type="submit">Add key</button>
+      </form>
+    </section>
+
+    <section id="tab-users" class="tab-panel" hidden>
+      <div class="panel-header"><h2>Accounts</h2></div>
+      <table id="users-table">
+        <thead><tr><th>Username</th><th>Role</th><th>Keys</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <form id="user-create-form" class="inline-form">
+        <input type="text" id="user-new-name" placeholder="username" required>
+        <label class="checkbox"><input type="checkbox" id="user-new-admin"> admin</label>
+        <button type="submit">Create account</button>
+      </form>
+    </section>
+
+    <section id="tab-doctor" class="tab-panel" hidden>
+      <div class="panel-header"><h2>Diagnostics</h2><button id="doctor-run" class="link">run again</button></div>
+      <table id="doctor-table">
+        <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

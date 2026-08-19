@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/ngxborg
+
+# Coverage
+coverage.*
+
+# OS / temp
+*.tmp
+*.swp
+*~
