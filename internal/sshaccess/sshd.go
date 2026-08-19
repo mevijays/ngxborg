@@ -101,6 +101,9 @@ func EnsureDualPort(ctx context.Context, r system.Runner, adminPort, borgPort in
 	if r.DryRun {
 		return nil
 	}
+	if err := EnsurePrivilegeSeparationDir(); err != nil {
+		return fmt.Errorf("creating /run/sshd: %w", err)
+	}
 	if err := atomicWrite(DropInPath, body, 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", DropInPath, err)
 	}
@@ -137,6 +140,24 @@ func EnsureDualPort(ctx context.Context, r system.Runner, adminPort, borgPort in
 		return fmt.Errorf("restarting %s: %w", name, err)
 	}
 	return nil
+}
+
+// EnsurePrivilegeSeparationDir makes sure /run/sshd exists before sshd is
+// ever invoked — by this package, or by doctor's own independent `sshd -t`
+// check (internal/provision/doctor.go calls this too, for the same
+// reason). On a normally-booted host it already exists — systemd-tmpfiles
+// creates it at boot from a rule openssh-server ships — but /run is
+// tmpfs, cleared every boot, and that rule only runs at boot time. A host
+// that installs openssh-server without an intervening reboot (exactly
+// what `apt-get install` during `ngxborg setup` does) can reach this
+// point before /run/sshd has ever been created. Confirmed live: even
+// `sshd -t`, a pure syntax check with nothing to actually bind or
+// privilege-separate, refuses to run at all without it
+// ("Missing privilege separation directory: /run/sshd") — so this has to
+// happen before the very first sshd invocation, not just before starting
+// the service. Idempotent and harmless to call unconditionally.
+func EnsurePrivilegeSeparationDir() error {
+	return os.MkdirAll("/run/sshd", 0o755)
 }
 
 // allowFirewallPort opens the borg port through ufw, when ufw is the

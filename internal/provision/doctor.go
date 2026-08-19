@@ -93,6 +93,13 @@ func (c *Ctx) Diagnose() []Check {
 }
 
 func sshdCheck(c *Ctx, borgPort int) Check {
+	// sshd -t refuses to run at all without /run/sshd existing (see
+	// sshaccess.EnsurePrivilegeSeparationDir's doc comment) — a doctor run
+	// against a host where setup hasn't (re-)created it since the last
+	// boot would otherwise misreport a perfectly valid config as broken.
+	if err := sshaccess.EnsurePrivilegeSeparationDir(); err != nil {
+		return Check{"sshd config", StatusFail, "could not create /run/sshd", err.Error()}
+	}
 	if err := c.Runner.Run(c.Context, "sshd", "-t"); err != nil {
 		return Check{"sshd config", StatusFail, "sshd -t rejects the current configuration", "check " + sshaccess.DropInPath}
 	}
