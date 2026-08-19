@@ -3,6 +3,8 @@ package webui
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 
 	"ngxborg/internal/authpam"
@@ -197,6 +199,115 @@ func (s *server) handleReposEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// repoClientInfo is everything an operator needs to connect an arbitrary
+// borg client — or ngxsetup specifically — to one repository, spelled out
+// as ready-to-run commands rather than pieces they have to assemble by
+// hand. See handleRepoClientInfo's doc comment for why each field looks
+// the way it does.
+type repoClientInfo struct {
+	Tenant   string `json:"tenant"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Host     string `json:"host"`
+	BorgPort int    `json:"borg_port"`
+	SSHURL   string `json:"ssh_url"`
+
+	// GenerateKeyCommand runs on the CLIENT machine — any ordinary Linux
+	// box, ngxsetup's own host included — to create a fresh, dedicated
+	// key for talking to this one repository. Never an existing/shared
+	// key: a key scoped to one repository is one that can be revoked
+	// (via "SSH Keys" here) without touching anything else that host
+	// does.
+	GenerateKeyCommand string `json:"generate_key_command"`
+	// ShowPublicKeyCommand prints the half the client then has to paste
+	// into ngxborg's "SSH Keys" page (or `ngxborg user key add`) — the
+	// generate step above never prints it to the terminal on its own.
+	ShowPublicKeyCommand string `json:"show_public_key_command"`
+	// InitCommand and BackupCommand both only work AFTER that public key
+	// has been registered here — shown together so an operator sees the
+	// whole sequence at once instead of discovering the ordering by
+	// hitting "Permission denied".
+	InitCommand   string `json:"init_command"`
+	BackupCommand string `json:"backup_command"`
+
+	// NgxsetupRepo is the exact value to paste into ngxsetup's own Borg
+	// setup screen (or --repo on its CLI). ngxsetup manages its own
+	// dedicated SSH key internally — generating or importing one and
+	// showing the public half — so the client-side keygen/show-key steps
+	// above are specifically for a manual/generic Linux client. ngxsetup
+	// needs only this one URL; the note the frontend renders alongside
+	// it explains the rest.
+	NgxsetupRepo string `json:"ngxsetup_repo"`
+}
+
+// handleRepoClientInfo answers "what do I actually type" for connecting a
+// borg client to this repository — the manual sibling of borg init/backup
+// that ngxsetup's own Borg setup screen used to leave entirely
+// undocumented (repo create's CLI/web hint always used a placeholder
+// <this-host>:<borg-port>, whatever an operator was informed by, since
+// neither call site had a real port or address to substitute). This
+// derives both a real host (the address the browser is actually using to
+// reach the API, which is the same address a borg client would use to
+// reach the same box in the overwhelmingly common single-interface case)
+// and the real borg port (sshaccess.BorgPort, which parses back the sshd
+// drop-in `ngxborg setup` itself wrote — not a guess).
+func (s *server) handleRepoClientInfo(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	tenant, err := scopeTenant(sess, r.PathValue("tenant"))
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	name := r.PathValue("name")
+	if !borgrepo.Exists(tenant, name) {
+		writeError(w, http.StatusNotFound, "no such repository")
+		return
+	}
+
+	port, err := sshaccess.BorgPort()
+	if err != nil {
+		// An older setup, or a drop-in an operator hand-edited since —
+		// fall back to the documented default rather than failing this
+		// whole panel over something the rest of the UI tolerates too
+		// (see doctor's own handling of the same error).
+		port = 2222
+	}
+
+	path := borgrepo.Path(tenant, name)
+	host := requestHost(r)
+	sshURL := fmt.Sprintf("ssh://%s@%s:%d%s", tenant, host, port, path)
+	keyFile := fmt.Sprintf("~/.ssh/ngxborg_%s_%s", tenant, name)
+	keyComment := tenant + "@" + name
+
+	writeJSON(w, http.StatusOK, repoClientInfo{
+		Tenant:               tenant,
+		Name:                 name,
+		Path:                 path,
+		Host:                 host,
+		BorgPort:             port,
+		SSHURL:               sshURL,
+		GenerateKeyCommand:   fmt.Sprintf("ssh-keygen -t ed25519 -N \"\" -C %q -f %s", keyComment, keyFile),
+		ShowPublicKeyCommand: fmt.Sprintf("cat %s.pub", keyFile),
+		InitCommand:          fmt.Sprintf("BORG_RSH=\"ssh -i %s\" borg init --encryption=repokey-blake2 %s", keyFile, sshURL),
+		BackupCommand:        fmt.Sprintf("BORG_RSH=\"ssh -i %s\" borg create %s::'{hostname}-{now}' /path/to/back/up", keyFile, sshURL),
+		NgxsetupRepo:         sshURL,
+	})
+}
+
+// requestHost is the address a client used to reach this API — with any
+// port stripped, since a borg client (or ngxsetup) needs the bare
+// host/IP to pair with the borg port separately. Deliberately derived
+// from the request rather than from, say, `hostname -f`: a multi-homed
+// box's hostname can easily resolve to an address nothing outside it can
+// actually reach, while the Host header is, by construction, an address
+// that just worked.
+func requestHost(r *http.Request) string {
+	if h, _, err := net.SplitHostPort(r.Host); err == nil {
+		return h
+	}
+	return r.Host
 }
 
 // ---- ssh keys -------------------------------------------------------------

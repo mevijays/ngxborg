@@ -72,6 +72,29 @@ if (typeof Chart !== 'undefined') {
   Chart.defaults.plugins.legend.labels.usePointStyle = true;
 }
 
+// ---- copy-to-clipboard buttons -------------------------------------------------
+//
+// Every command shown in the "client commands" panel exists to be pasted
+// into a terminal, not read character by character — a button is one
+// click instead of a fiddly triple-click on text that wraps across lines.
+// `data-copy-target` names the id of the element holding the literal text
+// to copy, so callers never have to fight HTML-escaping a value into a
+// data attribute.
+function bindCopyButtons(root) {
+  root.querySelectorAll('.copy-btn[data-copy-target]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const el = document.getElementById(btn.dataset.copyTarget);
+      if (!el) return;
+      try {
+        await navigator.clipboard.writeText(el.textContent.trim());
+        toast('Copied to clipboard', 'ok');
+      } catch (err) {
+        toast('Could not copy automatically — select and copy it manually', 'err');
+      }
+    });
+  });
+}
+
 // ---- toast notifications ------------------------------------------------------
 
 function toast(message, kind) {
@@ -153,6 +176,64 @@ async function promptSetPassword(username, isSelf) {
   } catch (err) {
     toast('Could not set password: ' + err.message, 'err');
   }
+}
+
+// Shows exactly what to type to connect a borg client — any ordinary
+// Linux machine, or ngxsetup specifically — to one repository. Fixes a
+// real gap: repo creation used to hint at a borg init command with
+// <this-host>:<borg-port> placeholders because neither the CLI nor the
+// web UI had a real host/port to substitute; GET .../client-info now
+// supplies both (see handleRepoClientInfo's doc comment on the Go side),
+// so every command shown here is ready to paste and run as-is.
+async function showRepoClientInfo(tenant, name) {
+  let info;
+  try {
+    info = await api('GET', `/api/repos/${encodeURIComponent(tenant)}/${encodeURIComponent(name)}/client-info`);
+  } catch (err) {
+    toast('Could not load connection info: ' + err.message, 'err');
+    return;
+  }
+  const cmdRow = (id, cmd) => `
+    <div class="cmd-line">
+      <code id="${id}" class="flex-1">${escapeHTML(cmd)}</code>
+      <button type="button" class="copy-btn shrink-0 text-slate-300 hover:text-white" data-copy-target="${id}" title="Copy">${icon('fa-clipboard')}</button>
+    </div>`;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal-box-lg">
+      <h3 class="text-base font-semibold text-slate-900 mb-1">${icon('fa-terminal', 'text-indigo-500')} Connect a client to ${escapeHTML(tenant)}/${escapeHTML(name)}</h3>
+      <p class="text-xs text-slate-500 mb-4">Run these on any Linux machine with borg installed. Give every repository its own dedicated key — never reuse one key across repositories or machines, so a leaked or retired client can be revoked here without touching anything else.</p>
+
+      <h4 class="text-sm font-semibold text-slate-800 mb-1">1. Generate a dedicated key (on the client)</h4>
+      ${cmdRow('ci-keygen', info.generate_key_command)}
+
+      <h4 class="text-sm font-semibold text-slate-800 mb-1 mt-4">2. Show its public half, and register it here</h4>
+      ${cmdRow('ci-showkey', info.show_public_key_command)}
+      <p class="text-xs text-slate-500 mt-1">Paste the printed line into <span class="font-medium text-slate-700">SSH Keys → Register a key</span> for ${escapeHTML(tenant)} / ${escapeHTML(name)} before continuing — steps 3 and 4 fail with "Permission denied" until it's registered.</p>
+
+      <h4 class="text-sm font-semibold text-slate-800 mb-1 mt-4">3. Initialise the repository (once)</h4>
+      ${cmdRow('ci-init', info.init_command)}
+
+      <h4 class="text-sm font-semibold text-slate-800 mb-1 mt-4">4. Back up</h4>
+      ${cmdRow('ci-backup', info.backup_command)}
+      <p class="text-xs text-slate-500 mt-1">Replace <span class="font-mono">/path/to/back/up</span> with whatever you're actually archiving; run it again any time to add another archive.</p>
+
+      <div class="mt-5 pt-4 border-t border-slate-200">
+        <h4 class="text-sm font-semibold text-slate-800 mb-1">${icon('fa-cloud')} Using ngxsetup instead?</h4>
+        <p class="text-xs text-slate-500 mb-2">ngxsetup manages its own dedicated SSH key automatically — no manual keygen needed. Paste this into ngxsetup's Borg setup screen (or its <span class="font-mono">--repo</span> flag); it will generate or import a key and show you the public half to register here, the same as step 2 above.</p>
+        ${cmdRow('ci-ngxsetup', info.ngxsetup_repo)}
+      </div>
+
+      <div class="flex justify-end mt-5">
+        <button id="ci-close" class="btn btn-primary">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  bindCopyButtons(backdrop);
+  backdrop.querySelector('#ci-close').addEventListener('click', () => backdrop.remove());
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
 }
 
 // ---- session / login ----------------------------------------------------------
@@ -329,11 +410,15 @@ views.repos = async (container) => {
           ${r.Disabled ? `<span class="badge badge-warn ml-1">${icon('fa-ban', 'mr-0.5')}disabled</span>` : ''}</td>
         <td class="text-slate-500">${escapeHTML((r.CreatedAt || '').slice(0, 10))}</td>
         <td class="text-right space-x-3">
+          <button class="rowbtn text-indigo-600" data-action="commands" data-tenant="${escapeHTML(r.Tenant)}" data-name="${escapeHTML(r.Name)}">${icon('fa-terminal', 'mr-0.5')}commands</button>
           <button class="rowbtn text-indigo-600" data-action="${r.Disabled ? 'enable' : 'disable'}" data-tenant="${escapeHTML(r.Tenant)}" data-name="${escapeHTML(r.Name)}">${r.Disabled ? 'enable' : 'disable'}</button>
           <button class="rowbtn" data-action="delete" data-tenant="${escapeHTML(r.Tenant)}" data-name="${escapeHTML(r.Name)}">delete</button>
         </td>
       </tr>`).join('');
 
+    tbody.querySelectorAll('button[data-action="commands"]').forEach((btn) => {
+      btn.addEventListener('click', () => showRepoClientInfo(btn.dataset.tenant, btn.dataset.name));
+    });
     tbody.querySelectorAll('button[data-action="delete"]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const t = btn.dataset.tenant, n = btn.dataset.name;
@@ -379,7 +464,8 @@ views.repos = async (container) => {
     try {
       const repo = await api('POST', '/api/repos', body);
       document.getElementById('repo-new-name').value = '';
-      hint.innerHTML = `Reserved. From the tenant's own machine: <code class="chip">borg init --encryption=repokey-blake2 ssh://${escapeHTML(repo.Tenant)}@&lt;this-host&gt;:&lt;borg-port&gt;${escapeHTML(repo.Path)}</code>`;
+      hint.innerHTML = `Reserved. <button type="button" id="repo-create-view-commands" class="text-indigo-600 underline">View the exact commands to connect a client</button>`;
+      document.getElementById('repo-create-view-commands').addEventListener('click', () => showRepoClientInfo(repo.Tenant, repo.Name));
       toast('Repository created', 'ok');
       loadRepos();
     } catch (err) {

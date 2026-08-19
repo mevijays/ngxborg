@@ -2,6 +2,7 @@ package webui
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 )
@@ -42,5 +43,25 @@ func TestWriteJSONListPreservesRealItems(t *testing.T) {
 	}
 	if len(decoded) != 3 || decoded[0] != 1 || decoded[2] != 3 {
 		t.Errorf("decoded %v, want [1 2 3]", decoded)
+	}
+}
+
+// requestHost feeds the "host" half of every command handleRepoClientInfo
+// builds, so it has to strip whatever port the browser's Host header
+// carries (the web UI's own listening port) rather than leaking it into
+// a borg ssh:// URL where the borg port belongs instead.
+func TestRequestHost(t *testing.T) {
+	cases := []struct{ host, want string }{
+		{"172.16.1.107:8443", "172.16.1.107"},
+		{"172.16.1.107", "172.16.1.107"},
+		{"ngxborg.example.com:8443", "ngxborg.example.com"},
+		{"ngxborg.example.com", "ngxborg.example.com"},
+		{"[::1]:8443", "::1"},
+	}
+	for _, tc := range cases {
+		r := &http.Request{Host: tc.host}
+		if got := requestHost(r); got != tc.want {
+			t.Errorf("requestHost(Host=%q) = %q, want %q", tc.host, got, tc.want)
+		}
 	}
 }

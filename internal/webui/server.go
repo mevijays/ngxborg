@@ -73,6 +73,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/repos/{tenant}/{name}/purge", s.withAuth(s.handleReposPurge))
 	mux.HandleFunc("POST /api/repos/{tenant}/{name}/disable", s.withAuth(s.handleReposDisable))
 	mux.HandleFunc("POST /api/repos/{tenant}/{name}/enable", s.withAuth(s.handleReposEnable))
+	mux.HandleFunc("GET /api/repos/{tenant}/{name}/client-info", s.withAuth(s.handleRepoClientInfo))
 
 	mux.HandleFunc("GET /api/keys", s.withAuth(s.handleKeysList))
 	mux.HandleFunc("POST /api/keys", s.withAuth(s.handleKeysAdd))

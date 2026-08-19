@@ -69,6 +69,10 @@
 
   .modal-backdrop { @apply fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4; }
   .modal-box { @apply bg-white rounded-xl shadow-xl w-full max-w-md p-6; }
+  /* Wider variant for content that doesn't fit a form-sized modal — full
+     ssh:// URLs and shell commands wrap illegibly at max-w-md. */
+  .modal-box-lg { @apply bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 max-h-[85vh] overflow-y-auto; }
+  .cmd-line { @apply flex items-start gap-2 bg-slate-900 text-slate-100 rounded-lg px-3 py-2 font-mono text-xs break-all; }
 
   .toast { @apply bg-white border-l-4 border-indigo-500 shadow-lg rounded-md px-4 py-3 text-sm max-w-sm; }
   .toast.ok  { @apply border-emerald-500; }

@@ -13,5 +13,5 @@ var Version = "dev"
 // this is and where to file an issue without hunting through documentation.
 var (
 	Maintainer = "Vijay Vishwakarma"
-	RepoURL    = "https://github.com/sharmavijay86/ngxborg"
+	RepoURL    = "https://github.com/mevijays/ngxborg"
 )
