@@ -43,6 +43,9 @@ own agent. ngxborg takes a third path:
   lifecycle, and diagnostics.
 - A small, self-hosted web UI (embedded in the binary, TLS by default)
   for the same operations, usable by tenants and admins alike.
+- An **MCP server** at `/mcp` for AI agent integration — 17 tools for
+  user, repository, and system management via structured tool calls.
+  See [Agent integration](agent-integration.md).
 - Per-repository disable/enable (locks out every key scoped to it,
   reversibly) and per-tenant disable/enable (locks out the web UI *and*
   every SSH key on the account at once), independent of each other.

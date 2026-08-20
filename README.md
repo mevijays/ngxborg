@@ -40,6 +40,8 @@ Full docs: **[mevijays.github.io/ngxborg](https://mevijays.github.io/ngxborg/)**
 - [Getting started](https://mevijays.github.io/ngxborg/getting-started/)
 - [Architecture](https://mevijays.github.io/ngxborg/architecture/)
 - [CLI reference](https://mevijays.github.io/ngxborg/cli-reference/)
+- [Web UI guide](https://mevijays.github.io/ngxborg/web-ui/)
+- [Agent integration](https://mevijays.github.io/ngxborg/agent-integration/) — MCP server for AI agents
 - [Security model](https://mevijays.github.io/ngxborg/security/)
 - [Pairing with ngxsetup](https://mevijays.github.io/ngxborg/ngxsetup-integration/)
 

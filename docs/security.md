@@ -99,6 +99,32 @@ Being direct about the boundaries:
   verification tool.** ngxborg does not check archive integrity beyond
   what Borg itself does; `borg check` is still your responsibility.
 
+## MCP endpoint security
+
+The `/mcp` endpoint is **anonymous** — it does not require PAM
+authentication. This is intentional: agents connecting from external
+systems (GitHub Actions, CI/CD pipelines, local LLM tools) cannot
+authenticate via PAM, and the endpoint is only reachable on your internal
+network or behind a reverse proxy with its own access control.
+
+**All MCP tools are effectively admin-level operations.** The
+`ngxborg-admin` group membership check that gates admin endpoints in
+the web UI does **not** apply to MCP tools. Any caller with network
+access to `/mcp` can create users, delete repositories, and run
+diagnostics.
+
+Security recommendations:
+
+- **Network isolation**: Ensure the ngxborg port is only reachable from
+  trusted networks. Use firewall rules or a reverse proxy with IP
+  allowlisting.
+- **TLS**: If running with `--tls none` (plain HTTP), all MCP traffic
+  is unencrypted. Use only on trusted internal networks or behind a
+  TLS-terminating reverse proxy.
+- **Audit**: MCP tool calls are not logged separately from web UI access
+  logs. For compliance requirements, implement reverse proxy logging or
+  a dedicated audit layer.
+
 ## Reporting a vulnerability
 
 Please open an issue at

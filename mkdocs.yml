@@ -21,6 +21,7 @@ nav:
   - Architecture: architecture.md
   - CLI reference: cli-reference.md
   - Web UI guide: web-ui.md
+  - Agent integration: agent-integration.md
   - Security model: security.md
   - Pairing with ngxsetup: ngxsetup-integration.md
   - Troubleshooting: troubleshooting.md
