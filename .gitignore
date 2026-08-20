@@ -12,6 +12,7 @@
 /ngxborg
 /ngxborg-linux-*
 /ngxborg-macos-*
+/ngxborg-mcp
 
 # Coverage
 coverage.*

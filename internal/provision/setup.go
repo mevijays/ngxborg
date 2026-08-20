@@ -36,10 +36,13 @@ account    required     pam_unix.so
 `
 
 // SetupOptions configures a fresh install. Both ports default to their
-// conventional values when zero.
+// conventional values when zero. TLS defaults to "self-signed".
 type SetupOptions struct {
 	AdminPort int // default 22
 	BorgPort  int // default 2222
+	TLSMode   string // "self-signed", "custom", or "none"
+	TLSCert   string // path to TLS certificate (used when TLSMode == "custom")
+	TLSKey    string // path to TLS private key (used when TLSMode == "custom")
 }
 
 func (o SetupOptions) adminPort() int {
@@ -132,7 +135,7 @@ func (c *Ctx) Setup(opts SetupOptions) error {
 	if err := c.installSelf(); err != nil {
 		logx.Warn("could not install ngxborg to /usr/local/bin: %v", err)
 	}
-	if err := c.writeWebUnit(); err != nil {
+	if err := c.writeWebUnitTLS(":8443", opts.TLSMode, opts.TLSCert, opts.TLSKey); err != nil {
 		return err
 	}
 

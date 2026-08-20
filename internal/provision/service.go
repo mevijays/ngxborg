@@ -26,7 +26,7 @@ After=network.target ssh.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/ngxborg web --addr %s
+ExecStart=/usr/local/bin/ngxborg web --addr %s %s
 Restart=on-failure
 RestartSec=2
 
@@ -34,14 +34,36 @@ RestartSec=2
 WantedBy=multi-user.target
 `
 
+// webUnitTLSDirectives returns the CLI flags for the web command based on
+// the TLS mode chosen during setup.
+func webUnitTLSDirectives(tlsMode, tlsCert, tlsKey string) string {
+	switch tlsMode {
+	case "custom":
+		return fmt.Sprintf("--tls-cert %s --tls-key %s", tlsCert, tlsKey)
+	case "none":
+		return "--insecure"
+	default:
+		// "self-signed" — no extra flags; the web UI generates one.
+		return ""
+	}
+}
+
 // writeWebUnit renders the unit but never enables or starts it — that is
 // InstallService's job, a distinct step an operator opts into explicitly.
 func (c *Ctx) writeWebUnit() error {
-	return c.writeWebUnitAddr(":8443")
+	return c.writeWebUnitTLS(":8443", "", "", "")
 }
 
+// writeWebUnitAddr renders the unit with a custom address but default TLS.
 func (c *Ctx) writeWebUnitAddr(addr string) error {
-	body := fmt.Sprintf(webUnitTemplate, addr)
+	return c.writeWebUnitTLS(addr, "", "", "")
+}
+
+// writeWebUnitTLS renders the systemd unit with the given address and TLS
+// configuration. tlsMode is "self-signed", "custom", or "none".
+func (c *Ctx) writeWebUnitTLS(addr, tlsMode, tlsCert, tlsKey string) error {
+	tlsFlags := webUnitTLSDirectives(tlsMode, tlsCert, tlsKey)
+	body := fmt.Sprintf(webUnitTemplate, addr, tlsFlags)
 	if err := writeIfChanged(webUnitPath, body, 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", webUnitPath, err)
 	}
@@ -55,7 +77,13 @@ func (c *Ctx) writeWebUnitAddr(addr string) error {
 // `ngxborg install service`. addr is the listen address ("host:port" or
 // ":port"); an empty string keeps whatever writeWebUnit last configured
 // (":8443" after a fresh Setup) rather than resetting it.
+// tlsMode, tlsCert, tlsKey control TLS behavior ("self-signed", "custom", or "none").
 func (c *Ctx) InstallService(addr string) error {
+	return c.InstallServiceWithTLS(addr, "", "", "")
+}
+
+// InstallServiceWithTLS enables and starts the web UI with explicit TLS configuration.
+func (c *Ctx) InstallServiceWithTLS(addr, tlsMode, tlsCert, tlsKey string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
@@ -63,7 +91,7 @@ func (c *Ctx) InstallService(addr string) error {
 		return err
 	}
 	if addr != "" {
-		if err := c.writeWebUnitAddr(addr); err != nil {
+		if err := c.writeWebUnitTLS(addr, tlsMode, tlsCert, tlsKey); err != nil {
 			return err
 		}
 	} else if _, err := os.Stat(webUnitPath); err != nil {

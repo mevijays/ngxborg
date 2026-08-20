@@ -16,6 +16,7 @@ import (
 	"net/http"
 
 	"ngxborg/internal/logx"
+	"ngxborg/internal/mcpserver"
 )
 
 //go:embed static
@@ -23,37 +24,84 @@ var staticFS embed.FS
 
 type server struct {
 	sessions *sessionStore
+	mcp      *mcpserver.Server
 }
 
 // Serve blocks, running the web UI until ctx is cancelled or the listener
-// fails.
-func Serve(ctx context.Context, addr string) error {
-	cert, err := ensureCert()
-	if err != nil {
-		return fmt.Errorf("preparing TLS certificate: %w", err)
+// fails. tlsMode controls TLS behavior: "self-signed" (default), "custom",
+// or "none" (plain HTTP, for use behind a reverse proxy).
+func Serve(ctx context.Context, addr string, tlsMode string) error {
+	return serveWithCerts(ctx, addr, tlsMode, "", "")
+}
+
+// ServeWithCerts is like Serve but accepts explicit cert/key paths (used
+// when tlsMode is "custom").
+func ServeWithCerts(ctx context.Context, addr, tlsMode, certPath, keyPath string) error {
+	return serveWithCerts(ctx, addr, tlsMode, certPath, keyPath)
+}
+
+func serveWithCerts(ctx context.Context, addr, tlsMode, certPath, keyPath string) error {
+	var httpServer *http.Server
+
+	switch tlsMode {
+	case "none":
+		// Plain HTTP — no TLS. Intended for use behind a reverse proxy.
+		logx.Info("ngxborg web UI listening on http://%s", addr)
+		httpServer = &http.Server{Addr: addr, Handler: nil} // handler set below
+	case "custom":
+		if certPath == "" || keyPath == "" {
+			return fmt.Errorf("--tls=custom requires --tls-cert and --tls-key")
+		}
+		logx.Info("ngxborg web UI listening on https://%s (custom TLS)", addr)
+		httpServer = &http.Server{
+			Addr:      addr,
+			TLSConfig: &tls.Config{Certificates: []tls.Certificate{}}, // loaded below
+		}
+	default:
+		// "self-signed" — generate and persist one automatically.
+		logx.Info("ngxborg web UI listening on https://%s (self-signed TLS)", addr)
+		cert, err := ensureCert()
+		if err != nil {
+			return fmt.Errorf("preparing TLS certificate: %w", err)
+		}
+		httpServer = &http.Server{
+			Addr:      addr,
+			TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
+		}
 	}
 
-	s := &server{sessions: newSessionStore()}
+	s := &server{
+		sessions: newSessionStore(),
+		mcp:      mcpserver.New(),
+	}
 	mux := http.NewServeMux()
 	s.routes(mux)
+	httpServer.Handler = mux
 
-	httpServer := &http.Server{
-		Addr:      addr,
-		Handler:   mux,
-		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
+	switch tlsMode {
+	case "none":
+		go func() {
+			<-ctx.Done()
+			httpServer.Close()
+		}()
+		return httpServer.ListenAndServe()
+	default:
+		// TLS modes: load cert if custom, otherwise ensureCert already loaded it.
+		var cert tls.Certificate
+		var err error
+		if tlsMode == "custom" {
+			cert, err = tls.LoadX509KeyPair(certPath, keyPath)
+			if err != nil {
+				return fmt.Errorf("loading TLS certificate: %w", err)
+			}
+			httpServer.TLSConfig.Certificates = []tls.Certificate{cert}
+		}
+		go func() {
+			<-ctx.Done()
+			httpServer.Close()
+		}()
+		return httpServer.ListenAndServeTLS("", "")
 	}
-
-	go func() {
-		<-ctx.Done()
-		httpServer.Close()
-	}()
-
-	logx.Info("ngxborg web UI listening on https://%s", addr)
-	err = httpServer.ListenAndServeTLS("", "")
-	if err == http.ErrServerClosed {
-		return nil
-	}
-	return err
 }
 
 func (s *server) routes(mux *http.ServeMux) {
@@ -87,4 +135,9 @@ func (s *server) routes(mux *http.ServeMux) {
 
 	mux.HandleFunc("POST /api/passwd", s.withAuth(s.handlePasswd))
 	mux.HandleFunc("GET /api/doctor", s.withAuth(s.withAdmin(s.handleDoctor)))
+
+	// MCP endpoint — anonymous, no PAM authentication required.
+	// Agentic tools are served at /mcp on the same HTTPS port.
+	mux.Handle("POST /mcp", s.mcp.StreamableHTTPHandler("/mcp"))
+	mux.Handle("GET /mcp", s.mcp.StreamableHTTPHandler("/mcp"))
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"flag"
+	"fmt"
 
 	"ngxborg/internal/logx"
 	"ngxborg/internal/provision"
@@ -14,6 +15,9 @@ func cmdSetup(ctx context.Context, args []string) error {
 	borgPort := fs.Int("borg-port", 2222, "second port sshd listens on, restricted to forced-command borg traffic")
 	dryRun := fs.Bool("dry-run", false, "print what would change without changing anything")
 	verbose := fs.Bool("verbose", false, "show every command run")
+	tlsMode := fs.String("tls", "self-signed", "TLS mode for the web UI: self-signed | custom | none")
+	certPath := fs.String("tls-cert", "", "path to TLS certificate (required when --tls=custom)")
+	keyPath := fs.String("tls-key", "", "path to TLS private key (required when --tls=custom)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -21,11 +25,29 @@ func cmdSetup(ctx context.Context, args []string) error {
 		logx.SetLevel(logx.LevelDebug)
 	}
 
+	// Validate TLS options.
+	switch *tlsMode {
+	case "self-signed", "none":
+		// No extra flags needed.
+	case "custom":
+		if *certPath == "" || *keyPath == "" {
+			return fmt.Errorf("--tls=custom requires --tls-cert and --tls-key")
+		}
+	default:
+		return fmt.Errorf("unknown --tls value %q: use self-signed, custom, or none", *tlsMode)
+	}
+
 	c, err := provision.New(ctx, *dryRun)
 	if err != nil {
 		return err
 	}
-	return c.Setup(provision.SetupOptions{AdminPort: *adminPort, BorgPort: *borgPort})
+	return c.Setup(provision.SetupOptions{
+		AdminPort: *adminPort,
+		BorgPort:  *borgPort,
+		TLSMode:   *tlsMode,
+		TLSCert:   *certPath,
+		TLSKey:    *keyPath,
+	})
 }
 
 func cmdInstall(ctx context.Context, args []string) error {
